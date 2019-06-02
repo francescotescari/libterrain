@@ -21,7 +21,7 @@ def get_install_requires():
 
 setup(
     name='libterrain',
-    version='0.1dev',
+    version='0.1.1dev0',
     packages=['libterrain',],
     license='MIT',
     long_description=open('README.txt').read(),
