@@ -19,6 +19,7 @@ class Building(Base):
     gid = Column(Integer, primary_key=True)
     geom = Column(Geometry('POLYGON'))
     ant_height = 4
+    base = Base
 
     def __hash__(self):
         return hash(self.gid)

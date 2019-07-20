@@ -1,17 +1,21 @@
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, mapper, relationship
 from sqlalchemy import create_engine, and_
 from geoalchemy2.functions import GenericFunction
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import to_shape, from_shape
-from libterrain.building import Building_CTR, Building_OSM
+from libterrain.building import Building_CTR, Building_OSM, Building_OSMHeight
 from libterrain.comune import Comune
 
 class BuildingInterface():
-    def __init__(self, DSN, srid):
+    def __init__(self, DSN, srid, building_class, height_class=None):
         engine = create_engine(DSN, client_encoding='utf8', echo=False)
         Session = sessionmaker(bind=engine)
         self.session = Session()
         self.srid = srid
+        self.building_class = building_class
+        self.meta = building_class.base.metadata
+        self.engine = engine
+        self.height_class = height_class
 
     def get_province_area(self, name):
         comune = Comune.get_by_name(self.session, name.upper())
@@ -22,18 +26,31 @@ class BuildingInterface():
         CTR = CTRInterface(DSN)
         area = CTR.get_province_area(area_name)
         OSM = OSMInterface(DSN)
-        if(CTR.count_buildings(area) > OSM.count_buildings(area)):
+        if CTR.count_buildings(area) > OSM.count_buildings(area):
             print("Choosed CTR")
             return CTR
         else:
             print("Choosed OSM")
             return OSM
 
+    def add_economics_data(self, table_name, mapper_object, property_name='eco_data' ):
+        def void(state=None):
+            return
+        self.meta.reflect(bind=self.engine, views=True, only=[table_name])
+        table = self.meta.tables[table_name]
+        mapper_object.__setstate__ = void
+        mapper_object.__getstate__ = void
+        mapper(mapper_object, table)
+        self.building_class.__mapper__.add_property(property_name,
+                                                    relationship(mapper_object, backref="building", uselist=False))
+
+    def get_buildings(self, shape, area=None):
+        raise NotImplementedError
+
 
 class CTRInterface(BuildingInterface):
     def __init__(self, DSN, srid='4326'):
-        super(CTRInterface, self).__init__(DSN, srid)
-        self.building_class = Building_CTR
+        super(CTRInterface, self).__init__(DSN, srid, Building_CTR)
         self._set_building_filter()
 
     def _set_building_filter(self, codici=['0201', '0202', '0203', '0211',
@@ -105,8 +122,7 @@ class CTRInterface(BuildingInterface):
 
 class OSMInterface(BuildingInterface):
     def __init__(self, DSN, srid='4326'):
-        super(OSMInterface, self).__init__(DSN, srid)
-        self.building_class = Building_OSM
+        super(OSMInterface, self).__init__(DSN, srid, Building_OSM, Building_OSMHeight)
 
     def get_buildings(self, shape, area=None):
         """Get the buildings intersecting a shape
@@ -117,11 +133,11 @@ class OSMInterface(BuildingInterface):
             wkb_area = from_shape(area, srid=self.srid)
             building = self.session.query(Building_OSM) \
                 .filter(and_(Building_OSM.geom.ST_Intersects(wkb_area),
-                             Building_OSM.geom.ST_Intersects(wkb_element)))\
+                             Building_OSM.geom.ST_Intersects(wkb_element))) \
                 .order_by(Building_OSM.gid)
         else:
             building = self.session.query(Building_OSM) \
-                .filter(Building_OSM.geom.ST_Intersects(wkb_element))\
+                .filter(Building_OSM.geom.ST_Intersects(wkb_element)) \
                 .order_by(Building_OSM.gid)
         return building.all()
 
